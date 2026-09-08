@@ -1,4 +1,4 @@
-#!/Users/sreejith/Desktop/Projects/auto-ml/backend/venv/bin/python3
+#!/Users/sreejith/Desktop/Projects/auto-ml/backend/venv/bin/python3.11
 
 import sys
 import json

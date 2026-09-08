@@ -69,15 +69,22 @@ async def recommend_task(
     """
     
     try:
-        response_text = await llm.complete(system_prompt=system_prompt, user_prompt="Recommend the task and target column.")
-        
-        # strip markdown if exists
-        import re
-        match = re.search(r"```(?:json)?\s*(.*?)\s*```", response_text, re.DOTALL)
-        if match:
-            response_text = match.group(1)
-            
-        data = json.loads(response_text.strip())
-        return data
+        from agno.agent import Agent
+        from pydantic import BaseModel, Field
+        from app.core.llm import get_model
+
+        class TaskRecommendation(BaseModel):
+            task_type: str = Field(description="One of 'classification', 'regression', or 'forecasting'")
+            target_column: str = Field(description="Exact column name from the dataset list")
+            reasoning: str = Field(description="1-sentence explanation of why you chose this")
+
+        rec_agent = Agent(
+            model=get_model(),
+            instructions="Recommend the best ML task type and target column based on the dataset structure.",
+            output_schema=TaskRecommendation,
+        )
+        result = await rec_agent.arun(system_prompt)
+        rec: TaskRecommendation = result.content if isinstance(result.content, TaskRecommendation) else TaskRecommendation.model_validate_json(str(result.content))
+        return rec.model_dump()
     except Exception as e:
-        return {"task_type": "regression", "target_column": "", "reasoning": "Failed to generate recommendation."}
+        return {"task_type": "regression", "target_column": "", "reasoning": f"Failed to generate recommendation: {e}"}

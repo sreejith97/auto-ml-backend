@@ -5,7 +5,7 @@ import asyncpg
 from app.core.db import get_db, init_db_pool, close_db_pool
 from app.core.storage import get_s3_client, test_r2_connection
 from app.models.schemas import HealthResponse
-from app.api.routes import ingest, columns, chat, task, clean, eda, auth, user, features, training, models, predict
+from app.api.routes import ingest, columns, chat, task, clean, eda, auth, user, features, training, models, predict, pipeline
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
@@ -45,6 +45,7 @@ app.include_router(features.router, prefix="/api/v1/features", tags=["features"]
 app.include_router(training.router, prefix="/api/v1/training", tags=["training"])
 app.include_router(models.router, prefix="/api/v1/models", tags=["models"])
 app.include_router(predict.router, prefix="/api/v1/predict", tags=["predict"])
+app.include_router(pipeline.router, prefix="/api/v1/pipeline", tags=["pipeline"])
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check(db: asyncpg.Connection = Depends(get_db)):

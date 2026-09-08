@@ -18,17 +18,26 @@ async def upsert_rule(
     transformation: str, 
     dataset_scope: str = 'global'
 ) -> int:
-    query = """
-        INSERT INTO rules (column_signature, question, answer, transformation, dataset_scope, use_count, last_used_at)
-        VALUES ($1, $2, $3, $4, $5, 1, CURRENT_TIMESTAMP)
-        ON CONFLICT (column_signature) DO UPDATE SET
-            answer = EXCLUDED.answer,
-            transformation = EXCLUDED.transformation,
-            use_count = rules.use_count + 1,
-            last_used_at = CURRENT_TIMESTAMP
-        RETURNING id
-    """
-    return await conn.fetchval(query, column_signature, question, answer, transformation, dataset_scope)
+    existing_id = await conn.fetchval("SELECT id FROM rules WHERE column_signature = $1 LIMIT 1", column_signature)
+    if existing_id:
+        await conn.execute(
+            """
+            UPDATE rules 
+            SET answer = $1, transformation = $2, use_count = use_count + 1, last_used_at = CURRENT_TIMESTAMP 
+            WHERE id = $3
+            """,
+            answer, transformation, existing_id
+        )
+        return existing_id
+    else:
+        return await conn.fetchval(
+            """
+            INSERT INTO rules (column_signature, question, answer, transformation, dataset_scope, use_count, last_used_at)
+            VALUES ($1, $2, $3, $4, $5, 1, CURRENT_TIMESTAMP)
+            RETURNING id
+            """,
+            column_signature, question, answer, transformation, dataset_scope
+        )
 
 async def increment_rule_usage(conn: asyncpg.Connection, rule_id: int):
     query = """
