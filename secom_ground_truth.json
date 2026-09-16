@@ -1,0 +1,22 @@
+[
+  {
+    "issue": "outliers",
+    "column": "sensor_0",
+    "spike_indices": [
+      1471,
+      1278,
+      568
+    ],
+    "expected_action": "cap_iqr"
+  },
+  {
+    "issue": "outliers",
+    "column": "sensor_1",
+    "spike_indices": [
+      900,
+      1086,
+      547
+    ],
+    "expected_action": "cap_iqr"
+  }
+]

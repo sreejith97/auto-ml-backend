@@ -25,7 +25,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _groq_key   = os.getenv("GROQ_API_KEY")
 _openai_key = os.getenv("OPENAI_API_KEY")
-_gemini_key = os.getenv("GEMINI_API_KEY")
+_gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+if _gemini_key and not os.getenv("GOOGLE_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = _gemini_key
 
 # Raw DATABASE_URL from env (asyncpg-style: postgresql:// or postgresql+asyncpg://)
 _raw_db_url = os.getenv("DATABASE_URL", "")
@@ -48,16 +51,23 @@ def get_model():
     """
     Returns the primary Agno model based on configured API keys.
     Priority: Groq → OpenAI → Gemini
+    Reads environment variables dynamically on every invocation.
     """
-    if _groq_key:
+    groq_key   = os.getenv("GROQ_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+    if groq_key and groq_key.strip():
         from agno.models.groq import Groq
-        return Groq(id="openai/gpt-oss-120b", api_key=_groq_key)
-    if _openai_key:
+        return Groq(id="openai/gpt-oss-120b", api_key=groq_key.strip())
+    if openai_key and openai_key.strip():
         from agno.models.openai import OpenAIChat
-        return OpenAIChat(id="gpt-4o-mini", api_key=_openai_key)
-    if _gemini_key:
+        return OpenAIChat(id="gpt-4o-mini", api_key=openai_key.strip())
+    if gemini_key and gemini_key.strip():
         from agno.models.google import Gemini
-        return Gemini(id="gemini-2.0-flash", api_key=_gemini_key)
+        if not os.getenv("GOOGLE_API_KEY"):
+            os.environ["GOOGLE_API_KEY"] = gemini_key.strip()
+        return Gemini(id="gemini-2.0-flash", api_key=gemini_key.strip())
     raise ValueError(
         "No LLM provider configured. "
         "Set at least one of GROQ_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY."

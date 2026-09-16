@@ -5,7 +5,8 @@ import asyncpg
 from app.core.db import get_db, init_db_pool, close_db_pool
 from app.core.storage import get_s3_client, test_r2_connection
 from app.models.schemas import HealthResponse
-from app.api.routes import ingest, columns, chat, task, clean, eda, auth, user, features, training, models, predict, pipeline
+from app.api.routes import ingest, columns, chat, task, clean, eda, auth, user, features, training, models, predict, pipeline, transformations
+
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
@@ -40,6 +41,7 @@ app.include_router(columns.router, prefix="/api/v1/columns", tags=["columns"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 app.include_router(task.router, prefix="/api/v1/task", tags=["task"])
 app.include_router(clean.router, prefix="/api/v1/clean", tags=["clean"])
+app.include_router(transformations.router, prefix="/api/v1/transformations", tags=["transformations"])
 app.include_router(eda.router, prefix="/api/v1/eda", tags=["eda"])
 app.include_router(features.router, prefix="/api/v1/features", tags=["features"])
 app.include_router(training.router, prefix="/api/v1/training", tags=["training"])

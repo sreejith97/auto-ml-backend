@@ -28,3 +28,20 @@ async def resolve_question(conn: asyncpg.Connection, question_id: int, answer: s
 async def get_resolved(conn: asyncpg.Connection, run_id: int) -> List[asyncpg.Record]:
     query = "SELECT * FROM questions_pending WHERE run_id = $1 AND status = 'resolved' ORDER BY id ASC"
     return await conn.fetch(query, run_id)
+
+async def insert_resolved_system(
+    conn: asyncpg.Connection,
+    run_id: int,
+    column_name: str,
+    issue_type: str,
+    confidence: float,
+    evidence_jsonb: dict,
+    resolved_answer: str
+) -> int:
+    evidence_jsonb["resolved_answer"] = resolved_answer
+    query = """
+        INSERT INTO questions_pending (run_id, column_name, issue_type, confidence, evidence_jsonb, status)
+        VALUES ($1, $2, $3, $4, $5, 'resolved')
+        RETURNING id
+    """
+    return await conn.fetchval(query, run_id, column_name, issue_type, confidence, json.dumps(evidence_jsonb))

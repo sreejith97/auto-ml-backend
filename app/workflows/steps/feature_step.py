@@ -109,11 +109,16 @@ def _make_feature_tools():
 def get_feature_agent(run_id: int):
     """Returns (and caches) a FeatureEngineeringAgent for a run_id."""
     from agno.agent import Agent
+    from app.mcp_servers.factory import get_mcp_toolkit
+    feature_mcp = get_mcp_toolkit("feature")
+    tools = _make_feature_tools()
+    if feature_mcp:
+        tools.append(feature_mcp)
 
     return Agent(
         name="FeatureEngineeringAgent",
         model=get_model(),
-        tools=_make_feature_tools(),
+        tools=tools,
         db=get_agent_storage("feature_sessions"),
         session_id=str(run_id),
         add_history_to_context=True,

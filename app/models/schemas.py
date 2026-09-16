@@ -74,10 +74,21 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
 
+class ChartSpec(BaseModel):
+    chart_type: str # bar, line, scatter, pie, histogram
+    title: str
+    x_axis: str
+    y_axis: str
+    data: List[dict]
+
 class ChatResponse(BaseModel):
     assistant_reply: str
     action_taken: bool
+    pandas_code: Optional[str] = None
+    table_markdown: Optional[str] = None
+    chart_spec: Optional[ChartSpec] = None
     updated_state: Optional[dict] = None
+
 
 class TaskCreate(BaseModel):
     task_type: str
@@ -91,6 +102,7 @@ class TaskResponse(BaseModel):
 
 class CleanRunResponse(BaseModel):
     auto_applied: list
+    rule_reused: list
     pending: list
 
 class QuestionAnswerRequest(BaseModel):
@@ -99,13 +111,25 @@ class QuestionAnswerRequest(BaseModel):
 
 class CleanStateResponse(BaseModel):
     auto_applied: list
+    rule_reused: list
     pending: list
     resolved: list
+
+class EDAStepResult(BaseModel):
+    metrics: dict
+    findings: str
+    recommendations: List[str] = []
 
 class EDAResponse(BaseModel):
     summary_stats: dict
     correlation_matrix: dict
     class_balance: Optional[dict] = None
+    dataset_health: Optional[dict] = None
+    target_analysis: Optional[dict] = None
+    outlier_analysis: Optional[dict] = None
+    feature_target_relations: Optional[dict] = None
+    categorical_profiling: Optional[dict] = None
     findings_summary: list
     narration: str
+
 

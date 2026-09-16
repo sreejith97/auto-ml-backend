@@ -49,6 +49,12 @@ async def get_eda(
         summary_stats=result["stats"],
         correlation_matrix=result["correlation"],
         class_balance=result["class_balance"],
+        dataset_health=result.get("dataset_health"),
+        target_analysis=result.get("target_analysis"),
+        outlier_analysis=result.get("outlier_analysis"),
+        feature_target_relations=result.get("feature_target_relations"),
+        categorical_profiling=result.get("categorical_profiling"),
         findings_summary=result["findings"],
         narration=result["narration"],
     )
+

@@ -23,6 +23,19 @@ async def init_db_pool():
     global db_pool
     db_pool = await asyncpg.create_pool(dsn=DATABASE_URL)
     logger.info("Successfully connected to the PostgreSQL database.")
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS transformation_history (
+                id SERIAL PRIMARY KEY,
+                run_id INTEGER REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+                prompt TEXT NOT NULL,
+                code TEXT,
+                rows INTEGER,
+                cols INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
 
 async def close_db_pool():
     global db_pool

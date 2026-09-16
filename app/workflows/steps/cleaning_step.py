@@ -32,6 +32,35 @@ logger = logging.getLogger(__name__)
 CONFIDENCE_THRESHOLD = 0.85
 
 
+def get_cleaning_agent(run_id: int):
+    """Returns (and caches) a CleaningAgent equipped with FastMCP Data Cleaning tools."""
+    from agno.agent import Agent
+    from app.core.llm import get_model, get_agent_storage
+    from app.mcp_servers.factory import get_mcp_toolkit
+
+    cleaning_mcp = get_mcp_toolkit("cleaning")
+    tools = [cleaning_mcp] if cleaning_mcp else []
+
+    return Agent(
+        name="CleaningAgent",
+        model=get_model(),
+        tools=tools,
+        db=get_agent_storage("cleaning_sessions"),
+        session_id=str(run_id),
+        add_history_to_context=True,
+        num_history_runs=4,
+        description=(
+            "You are an expert Data Cleaning Agent. You use FastMCP tools to inspect dirty "
+            "values, preview missing value imputation impact, and evaluate outlier bounds."
+        ),
+        instructions=[
+            "Inspect non-standard strings, mixed types, and missingness in dataset columns.",
+            "Use preview_imputation_impact to evaluate median vs mean imputation.",
+            "Use preview_outlier_clipping to check how many rows winsorization will alter.",
+        ],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Core cleaning analysis — deterministic detectors
 # ---------------------------------------------------------------------------

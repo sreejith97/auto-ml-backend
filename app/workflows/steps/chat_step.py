@@ -39,13 +39,15 @@ class ChatIntent(BaseModel):
     intent: Literal[
         "update_column_role",
         "answer_cleaning_question",
+        "data_analysis_and_op",
         "general_chat",
     ] = Field(
         description=(
             "Classified intent of the user's message. "
             "Use 'update_column_role' if they want to change a column's role. "
             "Use 'answer_cleaning_question' if they are resolving a cleaning decision. "
-            "Use 'general_chat' for any other question or comment."
+            "Use 'data_analysis_and_op' if they ask to analyze data, run pandas operations, filter rows, compute statistics, or generate charts/plots. "
+            "Use 'general_chat' for general questions or pipeline status comments."
         )
     )
 
@@ -74,12 +76,42 @@ class ChatIntent(BaseModel):
         description="Confidence in the matched option (0.0–1.0)."
     )
 
-    # general_chat / clarification
+    # data_analysis_and_op fields
+    pandas_code: Optional[str] = Field(
+        default=None,
+        description="Valid Pandas code snippet operating on DataFrame 'df' (e.g. df.groupby('col')['target'].mean().reset_index() or df['new_col'] = ...)."
+    )
+    is_mutation: bool = Field(
+        default=False,
+        description="Set to True if pandas_code modifies df rows/columns or structure, False if it is read-only analysis."
+    )
+    requires_chart: bool = Field(
+        default=False,
+        description="Set to True if the user asks for a chart/plot/graph or if a visual plot would enhance the analysis."
+    )
+    chart_type: Optional[Literal["bar", "line", "scatter", "pie", "histogram"]] = Field(
+        default=None,
+        description="Chart type requested or best suited: bar, line, scatter, pie, histogram."
+    )
+    chart_title: Optional[str] = Field(
+        default=None,
+        description="Title for the chart."
+    )
+    x_axis: Optional[str] = Field(
+        default=None,
+        description="DataFrame column name for x-axis."
+    )
+    y_axis: Optional[str] = Field(
+        default=None,
+        description="DataFrame column name for y-axis."
+    )
+
+    # general_chat / text analysis summary
     response: Optional[str] = Field(
         default=None,
         description=(
-            "A concise, plain-English reply to the user. "
-            "Required for general_chat. Also used for clarification when confidence < 0.7."
+            "A concise, plain-English text analysis, explanation, or general response to the user. "
+            "Provide insightful commentary on data distributions or trends when performing analysis."
         )
     )
 
@@ -107,20 +139,18 @@ def create_chat_agent(run_id: int):
         output_schema=ChatIntent,
         structured_outputs=True,
         description=(
-            "You are an intelligent assistant embedded in an AutoML pipeline. "
-            "You help non-technical users understand their data, correct column roles, "
-            "and make cleaning decisions. You remember everything said in this session."
+            "You are an intelligent data analyst and assistant embedded in an AutoML pipeline. "
+            "You help users analyze data, write sandboxed Pandas code, generate visual charts, "
+            "correct column roles, and make cleaning decisions."
         ),
         instructions=[
-            "Classify every user message into one of three intents: "
-            "update_column_role | answer_cleaning_question | general_chat.",
-            "For update_column_role: extract the exact column name and new role.",
-            "For answer_cleaning_question: map the user's answer to one of the allowed "
-            "cleaning actions (drop, impute_mean, impute_median, drop_rows, cap_iqr, "
-            "lowercase_all, drop_duplicates, ignore). Set confidence < 0.7 if unsure "
-            "and provide a clarifying response.",
-            "For general_chat: answer concisely using the provided dataset context. "
-            "Never expose raw JSON or internal pipeline identifiers.",
-            "Always keep responses under 3 sentences unless more detail is explicitly asked.",
+            "Classify user messages into one of four intents: "
+            "update_column_role | answer_cleaning_question | data_analysis_and_op | general_chat.",
+            "For data_analysis_and_op: write clean, executable Pandas code operating on 'df'.",
+            "If the user asks to create columns, filter rows, or mutate data, set is_mutation=True.",
+            "If the user asks for a plot, chart, histogram, or graph, set requires_chart=True and specify chart_type, chart_title, x_axis, y_axis.",
+            "If the user enters unrelated, off-topic, or nonsensical inputs (e.g. referencing columns not in the dataset or general trivia), classify as general_chat or return a polite guidance response in 'response' indicating the available dataset columns and suggesting valid actions.",
+            "Always include insightful, plain-English text commentary in the 'response' field explaining statistical findings or operational summaries.",
         ],
     )
+

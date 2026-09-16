@@ -54,12 +54,55 @@ def compute_eda_class_balance(
     return compute_class_balance(df, target_col, task_type)
 
 
+def compute_eda_dataset_health(df: pd.DataFrame) -> Dict[str, Any]:
+    from app.agents.eda import compute_dataset_health
+    return compute_dataset_health(df)
+
+
+def compute_eda_target_analysis(df: pd.DataFrame, target_col: str, task_type: str) -> Dict[str, Any]:
+    from app.agents.eda import compute_target_analysis
+    return compute_target_analysis(df, target_col, task_type)
+
+
+def compute_eda_outliers(df: pd.DataFrame, columns_spec: List[Dict]) -> Dict[str, Any]:
+    from app.agents.eda import compute_outlier_skew_analysis
+    return compute_outlier_skew_analysis(df, columns_spec)
+
+
+def compute_eda_feature_target(
+    df: pd.DataFrame, target_col: str, task_type: str, columns_spec: List[Dict]
+) -> Dict[str, Any]:
+    from app.agents.eda import compute_feature_target_relationships
+    return compute_feature_target_relationships(df, target_col, task_type, columns_spec)
+
+
+def compute_eda_categorical(df: pd.DataFrame, columns_spec: List[Dict]) -> Dict[str, Any]:
+    from app.agents.eda import compute_categorical_profiling
+    return compute_categorical_profiling(df, columns_spec)
+
+
 def compute_eda_findings(
-    stats: Dict, correlation: Dict, class_balance: Optional[Dict]
+    stats: Dict,
+    correlation: Dict,
+    class_balance: Optional[Dict],
+    dataset_health: Optional[Dict] = None,
+    target_analysis: Optional[Dict] = None,
+    outlier_analysis: Optional[Dict] = None,
+    feature_target_relations: Optional[Dict] = None,
+    categorical_profiling: Optional[Dict] = None,
 ) -> List[Dict]:
-    """Deterministic findings from all three EDA outputs."""
+    """Deterministic findings from all EDA outputs."""
     from app.agents.eda import generate_findings_summary
-    return generate_findings_summary(stats, correlation, class_balance)
+    return generate_findings_summary(
+        stats,
+        correlation,
+        class_balance,
+        dataset_health=dataset_health,
+        target_analysis=target_analysis,
+        outlier_analysis=outlier_analysis,
+        feature_target_relations=feature_target_relations,
+        categorical_profiling=categorical_profiling,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -73,26 +116,27 @@ def get_eda_synthesis_agent(run_id: int):
     Shares session_id with the NarrationAgent so it can reference prior stages.
     """
     from agno.agent import Agent
+    from app.mcp_servers.factory import get_mcp_toolkit
+    eda_mcp = get_mcp_toolkit("eda")
+    tools = [eda_mcp] if eda_mcp else []
 
     return Agent(
         name="EDASynthesisAgent",
         model=get_model(),
+        tools=tools,
         db=get_agent_storage("eda_sessions"),
         session_id=str(run_id),
         add_history_to_context=True,
         num_history_runs=4,
         description=(
             "You are an AI data analyst that synthesizes Exploratory Data Analysis "
-            "findings and explains them to non-technical users. You remember what "
-            "was discussed earlier in the pipeline."
+            "findings and recommendations for non-technical users."
         ),
         instructions=[
-            "Summarize the key EDA findings in 2-4 plain English sentences.",
-            "Highlight class imbalance, high correlation, or skew if present — these "
-            "affect model quality.",
+            "Summarize the key EDA findings and resolution recommendations in 2-4 plain English sentences.",
+            "Mention critical recommendations (e.g., target transformation, rebalancing, scaling, pruning).",
             "Never output raw numbers, JSON, or statistical jargon.",
-            "If no notable findings exist, say so briefly and positively.",
-            "Reference any relevant cleaning decisions made earlier if applicable.",
+            "If no notable issues exist, say so briefly and positively.",
         ],
         markdown=False,
     )
@@ -101,9 +145,6 @@ def get_eda_synthesis_agent(run_id: int):
 async def synthesize_eda(
     run_id: int,
     conn,
-    stats: Dict,
-    correlation: Dict,
-    class_balance: Optional[Dict],
     findings: List[Dict],
 ) -> str:
     """
@@ -113,14 +154,17 @@ async def synthesize_eda(
     from app.core.queries import conversation
 
     if findings:
-        findings_text = "\n".join([f"- {f['type']}: {f['detail']}" for f in findings])
+        findings_text = "\n".join([
+            f"- {f['type']}: {f['detail']} | Recs: {', '.join(f.get('recommendations', []))}"
+            for f in findings
+        ])
         prompt = (
-            f"EDA is complete. Notable findings:\n{findings_text}\n\n"
-            "Summarize these insights for the user in 2-3 friendly, non-technical sentences."
+            f"EDA analysis is complete. Notable step-level insights and resolution steps:\n{findings_text}\n\n"
+            "Synthesize these insights and action items into a friendly 2-3 sentence overview."
         )
     else:
         prompt = (
-            "EDA completed with no notable issues. "
+            "EDA completed with no notable data issues. "
             "Tell the user briefly and invite them to proceed to feature engineering."
         )
 
@@ -131,9 +175,9 @@ async def synthesize_eda(
     except Exception as exc:
         logger.error(f"EDASynthesisAgent failed for run={run_id}: {exc}")
         msg = (
-            f"EDA complete. Found {len(findings)} notable insights."
+            f"EDA complete across 6 modules. Identified {len(findings)} key findings with actionable recommendations."
             if findings
-            else "EDA complete. Data looks clean!"
+            else "EDA complete across all 6 modules. Data looks clean and ready!"
         )
 
     await conversation.insert_message(conn, run_id, "assistant", msg, "eda")
@@ -141,7 +185,7 @@ async def synthesize_eda(
 
 
 # ---------------------------------------------------------------------------
-# All-in-one EDA runner — used by the existing REST route
+# All-in-one EDA runner — used by the REST route
 # ---------------------------------------------------------------------------
 
 async def run_eda(
@@ -153,20 +197,41 @@ async def run_eda(
     task_type: str,
 ) -> Dict[str, Any]:
     """
-    Runs all EDA computations and synthesis narration.
+    Runs all 6 EDA module computations, findings, resolution steps, and synthesis narration.
     Returns the full EDA payload for the frontend.
     """
     stats = compute_eda_stats(df, columns_spec)
     correlation = compute_eda_correlation(df, columns_spec)
     class_balance = compute_eda_class_balance(df, target_col, task_type)
-    findings = compute_eda_findings(stats, correlation, class_balance)
+    dataset_health = compute_eda_dataset_health(df)
+    target_analysis = compute_eda_target_analysis(df, target_col, task_type)
+    outlier_analysis = compute_eda_outliers(df, columns_spec)
+    feature_target_relations = compute_eda_feature_target(df, target_col, task_type, columns_spec)
+    categorical_profiling = compute_eda_categorical(df, columns_spec)
 
-    narration = await synthesize_eda(run_id, conn, stats, correlation, class_balance, findings)
+    findings = compute_eda_findings(
+        stats,
+        correlation,
+        class_balance,
+        dataset_health=dataset_health,
+        target_analysis=target_analysis,
+        outlier_analysis=outlier_analysis,
+        feature_target_relations=feature_target_relations,
+        categorical_profiling=categorical_profiling,
+    )
+
+    narration = await synthesize_eda(run_id, conn, findings)
 
     return {
         "stats": stats,
         "correlation": correlation,
         "class_balance": class_balance,
+        "dataset_health": dataset_health,
+        "target_analysis": target_analysis,
+        "outlier_analysis": outlier_analysis,
+        "feature_target_relations": feature_target_relations,
+        "categorical_profiling": categorical_profiling,
         "findings": findings,
         "narration": narration,
     }
+

@@ -35,7 +35,7 @@ async def run_cleaning(
     existing = await db.fetchval("SELECT COUNT(*) FROM questions_pending WHERE run_id = $1", run_id)
     if existing > 0:
         state = await get_clean_state(run_id, db, current_user)
-        return CleanRunResponse(auto_applied=[], pending=state.pending)
+        return CleanRunResponse(auto_applied=[], rule_reused=[], pending=state.pending)
     
     from app.core.storage import load_dataframe
     # Load dataset
@@ -48,6 +48,7 @@ async def run_cleaning(
     cols_spec = await col_queries.get_columns_for_dataset(db, dataset_id)
     
     auto_applied = []
+    rule_reused = []
     pending_list = []
     
     # 2. Run Detectors
@@ -80,21 +81,25 @@ async def run_cleaning(
             if matched_rule and matched_rule['transformation']:
                 # Reuse rule
                 await rule_queries.increment_rule_usage(db, matched_rule['id'])
-                auto_applied.append({
+                action = matched_rule['transformation']
+                await q_queries.insert_resolved_system(db, run_id, col_name, det["issue"], 1.0, {"source": "rule", **det["evidence"]}, action)
+                rule_reused.append({
                     "column": col_name,
                     "issue": det["issue"],
                     "confidence": 1.0,
                     "source": "rule",
-                    "action": matched_rule['transformation']
+                    "action": action
                 })
             elif det["confidence"] >= confidence.CONFIDENCE_THRESHOLD:
                 # High confidence -> Auto apply
+                action = det["proposed_fix"]
+                await q_queries.insert_resolved_system(db, run_id, col_name, det["issue"], det["confidence"], {"source": "auto", **det["evidence"]}, action)
                 auto_applied.append({
                     "column": col_name,
                     "issue": det["issue"],
                     "confidence": det["confidence"],
                     "source": "detector",
-                    "action": det["proposed_fix"]
+                    "action": action
                 })
             else:
                 # Low confidence -> Ask human
@@ -112,12 +117,14 @@ async def run_cleaning(
     dup_det = cleaning.detect_duplicates(df)
     if dup_det:
         if dup_det["confidence"] >= confidence.CONFIDENCE_THRESHOLD:
+            action = dup_det["proposed_fix"]
+            await q_queries.insert_resolved_system(db, run_id, "Entire Dataset", dup_det["issue"], dup_det["confidence"], {"source": "auto", **dup_det["evidence"]}, action)
             auto_applied.append({
                 "column": "Entire Dataset",
                 "issue": dup_det["issue"],
                 "confidence": dup_det["confidence"],
                 "source": "detector",
-                "action": dup_det["proposed_fix"]
+                "action": action
             })
         else:
             q_id = await q_queries.insert_pending(
@@ -136,7 +143,7 @@ async def run_cleaning(
     # 4. Narrate
     await narration.narrate_cleaning(db, run_id, len(auto_applied), len(pending_list))
     
-    return CleanRunResponse(auto_applied=auto_applied, pending=pending_list)
+    return CleanRunResponse(auto_applied=auto_applied, rule_reused=rule_reused, pending=pending_list)
 
 async def answer_question(run_id: int, question_id: int, answer: str, db: asyncpg.Connection):
     """Extracted core logic so chat.py can call it directly."""
@@ -156,8 +163,8 @@ async def answer_question(run_id: int, question_id: int, answer: str, db: asyncp
     null_pct = df[col_name].isnull().sum() / len(df)
     sig = confidence.column_signature(col_name, dtype_str, null_pct)
     
-    # Transformation mapping (stubbed)
-    transformation = f"apply_{answer}"
+    # Transformation mapping
+    transformation = answer
     
     # Save Reusable Rule!
     await rule_queries.upsert_rule(db, sig, f"How to handle {q['issue_type']} in {col_name}?", answer, transformation)
@@ -194,28 +201,41 @@ async def get_clean_state(
     pending = await q_queries.get_pending(db, run_id)
     resolved_records = await q_queries.get_resolved(db, run_id)
     
-    # Extract resolved answer from evidence_jsonb
-    resolved = []
+    resolved_manual = []
+    auto_applied = []
+    rule_reused = []
+    
     for r in resolved_records:
         evidence = json.loads(r['evidence_jsonb']) if r['evidence_jsonb'] else {}
         action = evidence.get("resolved_answer", "Unknown")
-        resolved.append({
+        source = evidence.get("source", "manual")
+        
+        record = {
             "id": r["id"],
             "column": r["column_name"],
             "issue": r["issue_type"],
             "action": action,
-            "confidence": r["confidence"]
-        })
+            "confidence": r["confidence"],
+            "source": source
+        }
         
+        if source == "auto":
+            auto_applied.append(record)
+        elif source == "rule":
+            rule_reused.append(record)
+        else:
+            resolved_manual.append(record)
+            
     return CleanStateResponse(
-        auto_applied=[], 
+        auto_applied=auto_applied,
+        rule_reused=rule_reused, 
         pending=[{
             "id": p["id"],
             "column": p["column_name"],
             "issue": p["issue_type"],
             "confidence": p["confidence"]
         } for p in pending],
-        resolved=resolved
+        resolved=resolved_manual
     )
 
 @router.post("/{run_id}/finalize", response_model=dict)
